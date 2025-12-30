@@ -7,8 +7,9 @@ https://github.com/max/ha-notion
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from homeassistant.const import CONF_TOKEN, Platform
-from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.loader import async_get_loaded_integration
 
@@ -16,6 +17,9 @@ from .api import NotionTodoApiClient
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, LOGGER
 from .coordinator import NotionTodoDataUpdateCoordinator
 from .data import NotionTodoConfigEntry, NotionTodoData
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 PLATFORMS: list[Platform] = [Platform.TODO]
 

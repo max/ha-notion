@@ -14,6 +14,8 @@ from .api import (
 )
 from .const import CONF_DATA_SOURCE_ID
 
+MISSING_DATA_SOURCE_ID_MESSAGE = "Missing data source id; reconfigure integration."
+
 if TYPE_CHECKING:
     from .data import NotionTodoConfigEntry
 
@@ -28,7 +30,8 @@ class NotionTodoDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
         try:
             data_source_id = self.config_entry.data.get(CONF_DATA_SOURCE_ID)
             if not data_source_id:
-                raise UpdateFailed("Missing data source id; reconfigure integration.")
+                msg = MISSING_DATA_SOURCE_ID_MESSAGE
+                raise UpdateFailed(msg)
             return await self.config_entry.runtime_data.client.async_query_data_source(
                 data_source_id
             )

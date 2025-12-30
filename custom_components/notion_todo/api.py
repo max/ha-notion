@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+from http import HTTPStatus
 from typing import Any
 
 import aiohttp
@@ -11,6 +12,12 @@ import aiohttp
 from .const import NOTION_VERSION
 
 NOTION_API_BASE = "https://api.notion.com/v1"
+AUTH_FAILURE_STATUSES = (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN)
+ERROR_INVALID_CREDENTIALS = "Invalid credentials"
+ERROR_INVALID_DATABASE_ID = "Invalid database id"
+ERROR_RESOURCE_NOT_FOUND = "Resource not found"
+ERROR_RATE_LIMIT = "Rate limit exceeded"
+ERROR_UNEXPECTED_RESPONSE = "Unexpected response"
 
 
 class NotionTodoApiClientError(Exception):
@@ -113,16 +120,20 @@ class NotionTodoApiClient:
                     headers=headers,
                     json=data,
                 ) as response:
-                    if response.status in (401, 403):
+                    if response.status in AUTH_FAILURE_STATUSES:
                         error = NotionTodoApiClientAuthenticationError(
-                            "Invalid credentials"
+                            ERROR_INVALID_CREDENTIALS
                         )
-                    elif response.status == 400:
-                        error = NotionTodoApiClientNotFoundError("Invalid database id")
-                    elif response.status == 404:
-                        error = NotionTodoApiClientNotFoundError("Resource not found")
-                    elif response.status == 429:
-                        error = NotionTodoApiClientRateLimitError("Rate limit exceeded")
+                    elif response.status == HTTPStatus.BAD_REQUEST:
+                        error = NotionTodoApiClientNotFoundError(
+                            ERROR_INVALID_DATABASE_ID
+                        )
+                    elif response.status == HTTPStatus.NOT_FOUND:
+                        error = NotionTodoApiClientNotFoundError(
+                            ERROR_RESOURCE_NOT_FOUND
+                        )
+                    elif response.status == HTTPStatus.TOO_MANY_REQUESTS:
+                        error = NotionTodoApiClientRateLimitError(ERROR_RATE_LIMIT)
                     else:
                         response.raise_for_status()
                         return await response.json()
@@ -142,4 +153,5 @@ class NotionTodoApiClient:
         if error is not None:
             raise error
 
-        raise NotionTodoApiClientError("Unexpected response")
+        msg = ERROR_UNEXPECTED_RESPONSE
+        raise NotionTodoApiClientError(msg)

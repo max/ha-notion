@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.todo import TodoItem, TodoItemStatus, TodoListEntity
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.core import callback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
@@ -29,11 +28,16 @@ from .const import (
     DEFAULT_TITLE_PROPERTY,
 )
 from .coordinator import NotionTodoDataUpdateCoordinator
-from .data import NotionTodoConfigEntry
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+    from .data import NotionTodoConfigEntry
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
+    _hass: HomeAssistant,
     entry: NotionTodoConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
@@ -121,9 +125,7 @@ def _get_entry_value(entry: NotionTodoConfigEntry, key: str, default: Any) -> An
     return entry.data.get(key, default)
 
 
-def _due_within_window(
-    due: dt.date | dt.datetime | None, days: int
-) -> bool:
+def _due_within_window(due: dt.date | dt.datetime | None, days: int) -> bool:
     """Check if due is within the next N days."""
     if due is None or days <= 0:
         return False
@@ -166,8 +168,7 @@ class NotionTodoListEntity(
             _get_entry_value(entry, CONF_EXCLUDE_STATUSES, DEFAULT_EXCLUDE_STATUSES)
         )
         self._due_within_days = int(
-            _get_entry_value(entry, CONF_DUE_WITHIN_DAYS, DEFAULT_DUE_WITHIN_DAYS)
-            or 0
+            _get_entry_value(entry, CONF_DUE_WITHIN_DAYS, DEFAULT_DUE_WITHIN_DAYS) or 0
         )
         self._attr_unique_id = f"{entry.entry_id}-{self._database_id}"
         self._attr_name = entry.title
@@ -186,9 +187,7 @@ class NotionTodoListEntity(
             )
         )
         self._due_within_days = int(
-            _get_entry_value(
-                self._entry, CONF_DUE_WITHIN_DAYS, DEFAULT_DUE_WITHIN_DAYS
-            )
+            _get_entry_value(self._entry, CONF_DUE_WITHIN_DAYS, DEFAULT_DUE_WITHIN_DAYS)
             or 0
         )
         pages = self.coordinator.data or []
@@ -201,15 +200,16 @@ class NotionTodoListEntity(
             status_name = _status_name(props.get(self._status_property))
             completed = _is_completed(props.get(self._status_property))
             status = (
-                TodoItemStatus.COMPLETED
-                if completed
-                else TodoItemStatus.NEEDS_ACTION
+                TodoItemStatus.COMPLETED if completed else TodoItemStatus.NEEDS_ACTION
             )
             due = _extract_due(props.get(self._due_property))
             description = _extract_text(props.get(self._description_property))
-            if self._exclude_statuses and status_name:
-                if status_name.casefold() in self._exclude_statuses:
-                    continue
+            if (
+                self._exclude_statuses
+                and status_name
+                and status_name.casefold() in self._exclude_statuses
+            ):
+                continue
             if self._include_statuses or self._due_within_days > 0:
                 include_by_status = (
                     status_name.casefold() in self._include_statuses

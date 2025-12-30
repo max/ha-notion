@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 import uuid
+from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.const import CONF_TOKEN
 from homeassistant.helpers import selector
@@ -80,6 +79,7 @@ _UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
+UNDASHED_UUID_LENGTH = 32
 
 
 def _candidate_database_ids(value: str) -> list[str]:
@@ -91,7 +91,7 @@ def _candidate_database_ids(value: str) -> list[str]:
     for raw in matches:
         if raw not in candidates:
             candidates.append(raw)
-        if "-" not in raw and len(raw) == 32:
+        if "-" not in raw and len(raw) == UNDASHED_UUID_LENGTH:
             try:
                 dashed = str(uuid.UUID(hex=raw))
             except ValueError:
@@ -125,93 +125,33 @@ class NotionTodoFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the options flow for this handler."""
         return NotionTodoOptionsFlowHandler(config_entry)
 
-    async def async_step_user(
-        self,
-        user_input: dict[str, Any] | None = None,
-    ) -> config_entries.ConfigFlowResult:
-        """Handle a flow initialized by the user."""
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            candidates = _candidate_database_ids(user_input[CONF_DATABASE_ID])
-            if not candidates:
-                errors["base"] = "invalid_id"
-            if not errors:
-                try:
-                    client = NotionTodoApiClient(
-                        token=user_input[CONF_TOKEN],
-                        session=async_get_clientsession(self.hass),
-                    )
-                    database: dict[str, Any] | None = None
-                    selected_id: str | None = None
-                    for candidate_id in candidates:
-                        try:
-                            database = await client.async_get_database(candidate_id)
-                        except NotionTodoApiClientNotFoundError as exception:
-                            LOGGER.warning(
-                                "Database not found for %s: %s",
-                                candidate_id,
-                                exception,
-                            )
-                            continue
-                        else:
-                            selected_id = candidate_id
-                            break
-                except NotionTodoApiClientAuthenticationError as exception:
-                    LOGGER.warning("Auth failed: %s", exception)
-                    errors["base"] = "auth"
-                except NotionTodoApiClientCommunicationError as exception:
-                    LOGGER.error("Connection error: %s", exception)
-                    errors["base"] = "connection"
-                except NotionTodoApiClientError as exception:
-                    LOGGER.exception("Unexpected Notion error: %s", exception)
-                    errors["base"] = "unknown"
-                else:
-                    if not database or not selected_id:
-                        try:
-                            self._pending_data = user_input
-                            self._available_databases = await _list_databases(
-                                client=client
-                            )
-                        except NotionTodoApiClientAuthenticationError as exception:
-                            LOGGER.warning("Auth failed: %s", exception)
-                            errors["base"] = "auth"
-                        except NotionTodoApiClientCommunicationError as exception:
-                            LOGGER.error("Connection error: %s", exception)
-                            errors["base"] = "connection"
-                        except NotionTodoApiClientError as exception:
-                            LOGGER.exception("Unexpected Notion error: %s", exception)
-                            errors["base"] = "unknown"
-                        else:
-                            if self._available_databases:
-                                return await self.async_step_select()
-                            errors["base"] = "invalid_database"
-                    else:
-                        sources = _data_sources(database)
-                        if not sources:
-                            errors["base"] = "invalid_database"
-                        elif len(sources) == 1:
-                            user_input = {
-                                **user_input,
-                                CONF_DATABASE_ID: selected_id,
-                                CONF_DATA_SOURCE_ID: sources[0]["id"],
-                            }
-                            await self.async_set_unique_id(sources[0]["id"])
-                            self._abort_if_unique_id_configured()
-                            return self.async_create_entry(
-                                title=_database_title(database) or selected_id,
-                                data=user_input,
-                            )
-                        else:
-                            self._pending_data = {
-                                **user_input,
-                                CONF_DATABASE_ID: selected_id,
-                            }
-                            self._available_data_sources = sources
-                            self._pending_database_title = (
-                                _database_title(database) or selected_id
-                            )
-                            return await self.async_step_select_data_source()
+    def _errors_from_exception(
+        self, exception: NotionTodoApiClientError
+    ) -> dict[str, str]:
+        if isinstance(exception, NotionTodoApiClientAuthenticationError):
+            LOGGER.warning("Auth failed: %s", exception)
+            return {"base": "auth"}
+        if isinstance(exception, NotionTodoApiClientCommunicationError):
+            LOGGER.error("Connection error: %s", exception)
+            return {"base": "connection"}
+        LOGGER.exception("Unexpected Notion error: %s", exception)
+        return {"base": "unknown"}
 
+    def _abort_from_exception(
+        self, exception: NotionTodoApiClientError
+    ) -> config_entries.ConfigFlowResult:
+        if isinstance(exception, NotionTodoApiClientAuthenticationError):
+            LOGGER.warning("Auth failed: %s", exception)
+            return self.async_abort(reason="auth")
+        if isinstance(exception, NotionTodoApiClientCommunicationError):
+            LOGGER.error("Connection error: %s", exception)
+            return self.async_abort(reason="connection")
+        LOGGER.exception("Unexpected Notion error: %s", exception)
+        return self.async_abort(reason="unknown")
+
+    def _show_user_form(
+        self, user_input: dict[str, Any] | None, errors: dict[str, str]
+    ) -> config_entries.ConfigFlowResult:
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
@@ -226,9 +166,7 @@ class NotionTodoFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                     vol.Required(
                         CONF_DATABASE_ID,
-                        default=(user_input or {}).get(
-                            CONF_DATABASE_ID, vol.UNDEFINED
-                        ),
+                        default=(user_input or {}).get(CONF_DATABASE_ID, vol.UNDEFINED),
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(
                             type=selector.TextSelectorType.TEXT,
@@ -311,6 +249,104 @@ class NotionTodoFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def _async_find_database(
+        self, client: NotionTodoApiClient, candidates: list[str]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        database: dict[str, Any] | None = None
+        selected_id: str | None = None
+        for candidate_id in candidates:
+            try:
+                database = await client.async_get_database(candidate_id)
+            except NotionTodoApiClientNotFoundError as exception:
+                LOGGER.warning(
+                    "Database not found for %s: %s",
+                    candidate_id,
+                    exception,
+                )
+                continue
+            else:
+                selected_id = candidate_id
+                break
+        return database, selected_id
+
+    async def _async_handle_database_list(
+        self, client: NotionTodoApiClient, user_input: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult | dict[str, str]:
+        self._pending_data = user_input
+        try:
+            self._available_databases = await _list_databases(client=client)
+        except NotionTodoApiClientError as exception:
+            return self._errors_from_exception(exception)
+
+        if self._available_databases:
+            return await self.async_step_select()
+        return {"base": "invalid_database"}
+
+    async def _async_handle_database_selection(
+        self,
+        user_input: dict[str, Any],
+        database: dict[str, Any],
+        selected_id: str,
+    ) -> config_entries.ConfigFlowResult | dict[str, str]:
+        sources = _data_sources(database)
+        if not sources:
+            return {"base": "invalid_database"}
+        if len(sources) == 1:
+            user_input = {
+                **user_input,
+                CONF_DATABASE_ID: selected_id,
+                CONF_DATA_SOURCE_ID: sources[0]["id"],
+            }
+            await self.async_set_unique_id(sources[0]["id"])
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(
+                title=_database_title(database) or selected_id,
+                data=user_input,
+            )
+
+        self._pending_data = {
+            **user_input,
+            CONF_DATABASE_ID: selected_id,
+        }
+        self._available_data_sources = sources
+        self._pending_database_title = _database_title(database) or selected_id
+        return await self.async_step_select_data_source()
+
+    async def _async_handle_user_input(
+        self, user_input: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult | dict[str, str]:
+        candidates = _candidate_database_ids(user_input[CONF_DATABASE_ID])
+        if not candidates:
+            return {"base": "invalid_id"}
+
+        client = NotionTodoApiClient(
+            token=user_input[CONF_TOKEN],
+            session=async_get_clientsession(self.hass),
+        )
+        try:
+            database, selected_id = await self._async_find_database(client, candidates)
+        except NotionTodoApiClientError as exception:
+            return self._errors_from_exception(exception)
+
+        if not database or not selected_id:
+            return await self._async_handle_database_list(client, user_input)
+        return await self._async_handle_database_selection(
+            user_input, database, selected_id
+        )
+
+    async def async_step_user(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Handle a flow initialized by the user."""
+        if user_input is None:
+            return self._show_user_form(user_input, {})
+
+        result = await self._async_handle_user_input(user_input)
+        if isinstance(result, dict) and "type" not in result:
+            return self._show_user_form(user_input, result)
+        return result
+
     async def async_step_select(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
@@ -318,69 +354,61 @@ class NotionTodoFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         if not self._pending_data or not self._available_databases:
             return self.async_abort(reason="no_databases")
 
-        if user_input is not None:
-            selected = user_input[CONF_DATABASE_ID]
-            client = NotionTodoApiClient(
-                token=self._pending_data[CONF_TOKEN],
-                session=async_get_clientsession(self.hass),
-            )
-            try:
-                database = await client.async_get_database(selected)
-            except NotionTodoApiClientAuthenticationError as exception:
-                LOGGER.warning("Auth failed: %s", exception)
-                return self.async_abort(reason="auth")
-            except NotionTodoApiClientCommunicationError as exception:
-                LOGGER.error("Connection error: %s", exception)
-                return self.async_abort(reason="connection")
-            except NotionTodoApiClientError as exception:
-                LOGGER.exception("Unexpected Notion error: %s", exception)
-                return self.async_abort(reason="unknown")
-
-            sources = _data_sources(database)
-            if not sources:
-                return self.async_abort(reason="invalid_database")
-            if len(sources) == 1:
-                data = {
-                    **self._pending_data,
-                    CONF_DATABASE_ID: selected,
-                    CONF_DATA_SOURCE_ID: sources[0]["id"],
+        if user_input is None:
+            options = [
+                {
+                    "value": item["id"],
+                    "label": item["title"] or item["id"],
                 }
-                await self.async_set_unique_id(sources[0]["id"])
-                self._abort_if_unique_id_configured()
-                return self.async_create_entry(
-                    title=_database_title(database) or selected,
-                    data=data,
-                )
+                for item in self._available_databases
+            ]
+            return self.async_show_form(
+                step_id="select",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_DATABASE_ID): selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=options,
+                                mode=selector.SelectSelectorMode.DROPDOWN,
+                            )
+                        ),
+                    }
+                ),
+            )
 
-            self._pending_data = {
+        selected = user_input[CONF_DATABASE_ID]
+        client = NotionTodoApiClient(
+            token=self._pending_data[CONF_TOKEN],
+            session=async_get_clientsession(self.hass),
+        )
+        try:
+            database = await client.async_get_database(selected)
+        except NotionTodoApiClientError as exception:
+            return self._abort_from_exception(exception)
+
+        sources = _data_sources(database)
+        if not sources:
+            return self.async_abort(reason="invalid_database")
+        if len(sources) == 1:
+            data = {
                 **self._pending_data,
                 CONF_DATABASE_ID: selected,
+                CONF_DATA_SOURCE_ID: sources[0]["id"],
             }
-            self._available_data_sources = sources
-            self._pending_database_title = _database_title(database) or selected
-            return await self.async_step_select_data_source()
+            await self.async_set_unique_id(sources[0]["id"])
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(
+                title=_database_title(database) or selected,
+                data=data,
+            )
 
-        options = [
-            {
-                "value": item["id"],
-                "label": item["title"] or item["id"],
-            }
-            for item in self._available_databases
-        ]
-        return self.async_show_form(
-            step_id="select",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_DATABASE_ID): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=options,
-                            mode=selector.SelectSelectorMode.DROPDOWN,
-                        )
-                    ),
-                }
-            ),
-        )
-
+        self._pending_data = {
+            **self._pending_data,
+            CONF_DATABASE_ID: selected,
+        }
+        self._available_data_sources = sources
+        self._pending_database_title = _database_title(database) or selected
+        return await self.async_step_select_data_source()
 
     async def async_step_select_data_source(
         self, user_input: dict[str, Any] | None = None
