@@ -1,0 +1,11 @@
+{
+  "domain": "notion_todo",
+  "name": "Notion Todo",
+  "codeowners": ["@max"],
+  "config_flow": true,
+  "documentation": "https://github.com/max/ha-notion",
+  "issue_tracker": "https://github.com/max/ha-notion/issues",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "version": "0.1.0"
+}

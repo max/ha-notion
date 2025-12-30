@@ -1,0 +1,58 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "description": "Create a Notion integration token, share your database with it, then enter the token and database ID.",
+                "data": {
+                    "token": "Notion integration token",
+                    "database_id": "Database ID",
+                    "title_property": "Title property",
+                    "status_property": "Status property",
+                    "due_property": "Due date property",
+                    "description_property": "Description property",
+                    "include_statuses": "Include statuses (comma-separated)",
+                    "exclude_statuses": "Exclude statuses (comma-separated)",
+                    "due_within_days": "Include due within days"
+                }
+            },
+            "select": {
+                "description": "Select a database accessible to your integration.",
+                "data": {
+                    "database_id": "Database"
+                }
+            },
+            "select_data_source": {
+                "description": "Select which data source to use for this database.",
+                "data": {
+                    "data_source_id": "Data source"
+                }
+            }
+        },
+        "error": {
+            "auth": "Token is invalid.",
+            "connection": "Unable to connect to Notion.",
+            "invalid_id": "Database ID looks invalid. Paste the database URL or ID.",
+            "invalid_database": "Database not found or not shared with the integration.",
+            "unknown": "Unknown error occurred."
+        },
+        "abort": {
+            "already_configured": "This database is already configured.",
+            "no_databases": "No databases available for this integration.",
+            "auth": "Token is invalid.",
+            "connection": "Unable to connect to Notion.",
+            "invalid_database": "Database not found or not shared with the integration.",
+            "unknown": "Unknown error occurred."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "data": {
+                    "include_statuses": "Include statuses (comma-separated)",
+                    "exclude_statuses": "Exclude statuses (comma-separated)",
+                    "due_within_days": "Include due within days"
+                }
+            }
+        }
+    }
+}
